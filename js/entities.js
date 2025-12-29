@@ -33,7 +33,7 @@ export function normalize(x, y) {
 }
 
 export class Player {
-  constructor({ x, y, team, speed, role, number, colors }) {
+  constructor({ x, y, team, speed, role, number, colors, ratings }) {
     this.x = x;
     this.y = y;
     this.team = team;
@@ -48,6 +48,9 @@ export class Player {
     this.assignment = null;
     this.number = number || '';
     this.colors = colors || { primary: '#fff', secondary: '#888' };
+    this.ratings = ratings || {};
+    this.engagedBy = null;
+    this.engagedUntil = 0;
   }
 
   setRoute(route) {

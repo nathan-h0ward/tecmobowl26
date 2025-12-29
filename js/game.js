@@ -18,8 +18,8 @@ const FIELD_RIGHT = FIELD_LEFT + FIELD_WIDTH;
 const WORLD_WIDTH = FIELD_WIDTH;
 const WORLD_HEIGHT = FIELD_HEIGHT;
 const CAMERA_LERP = 0.12;
-const CAMERA_ZOOM = 1.45;
-const CAMERA_LOOKAHEAD = 90;
+const CAMERA_ZOOM = 1.15;
+const CAMERA_LOOKAHEAD = 60;
 
 const DIGITS = {
   '0': ['111', '101', '101', '101', '111'],
@@ -39,6 +39,18 @@ const DEF_NUMBERS = {
   LB: ['50', '51', '52', '53', '54'],
   CB: ['21', '23', '25'],
   S: ['31', '33', '35'],
+};
+
+const RATINGS = {
+  QB: { awareness: 78, speed: 70, throwPower: 82 },
+  RB: { speed: 85, catch: 75, passBlock: 55 },
+  WR: { speed: 88, catch: 80 },
+  TE: { speed: 76, catch: 78, passBlock: 65 },
+  OL: { passBlock: 75 },
+  DL: { passRush: 78 },
+  LB: { pursuit: 76, coverage: 72, passRush: 70 },
+  CB: { pursuit: 80, coverage: 82 },
+  S: { pursuit: 78, coverage: 80 },
 };
 
 export class Game {
@@ -77,14 +89,14 @@ export class Game {
     this.helperMessage = 'Pick a play to start the drive.';
 
     this.playTimer = 0;
-    this.defenseDelay = 0.35;
+    this.playTimers = { pressureDeadline: 0, sackDeadline: 0 };
     this.routePreviewTimer = 0;
     this.runSelected = false;
+    this.intendedReceiver = null;
 
     this.camera = { x: FIELD_LEFT + FIELD_WIDTH / 2, y: FIELD_TOP + 100 };
     this.cameraLook = { x: 0, y: 1 };
     this.lastControlPos = { x: 0, y: 0 };
-    this.cameraDebug = false;
 
     this.debug = false;
 
@@ -141,6 +153,7 @@ export class Game {
     this.receivers = [];
     this.blockers = [];
     this.rushers = [];
+    this.intendedReceiver = null;
 
     const losY = this.yardToWorldY(this.losYard);
     const centerX = FIELD_LEFT + FIELD_WIDTH / 2;
@@ -180,7 +193,7 @@ export class Game {
       if (role === 'QB') this.qb = player;
       if (role === 'RB') this.rb = player;
       if (role.startsWith('WR') || role === 'TE' || role === 'RB') this.receivers.push(player);
-      if (role.startsWith('OL') || role === 'TE') this.blockers.push(player);
+      if (role.startsWith('OL') || role === 'TE' || role === 'RB') this.blockers.push(player);
     });
   }
 
@@ -272,7 +285,20 @@ export class Game {
       role,
       number: number || style.number,
       colors: { primary: style.primary, secondary: style.secondary },
+      ratings: this.getRatingsForRole(role),
     });
+  }
+
+  getRatingsForRole(role) {
+    if (role.startsWith('WR')) return RATINGS.WR;
+    if (role.startsWith('OL')) return RATINGS.OL;
+    if (role === 'DL') return RATINGS.DL;
+    if (role === 'LB') return RATINGS.LB;
+    if (role === 'CB') return RATINGS.CB;
+    if (role === 'S') return RATINGS.S;
+    if (role === 'RB') return RATINGS.RB;
+    if (role === 'TE') return RATINGS.TE;
+    return RATINGS.QB;
   }
 
   randomJitter() {
@@ -308,9 +334,6 @@ export class Game {
     if (this.input.consumeDebugToggle()) {
       this.debug = !this.debug;
     }
-    if (this.input.consumeCameraDebugToggle()) {
-      this.cameraDebug = !this.cameraDebug;
-    }
 
     this.updateClock(dt);
     this.updateSprintTimers(dt);
@@ -340,6 +363,9 @@ export class Game {
 
     const controlLabel = this.controlled ? this.controlled.role : 'None';
     const passingLabel = this.ball.inAir ? 'PASSING…' : '';
+    const debugLabel = this.debug
+      ? `PRESS:${this.playTimers.pressureDeadline.toFixed(2)} SACK:${this.playTimers.sackDeadline.toFixed(2)} NOW:${this.playTimer.toFixed(2)} CTRL:${controlLabel} INT:${this.intendedReceiver || 'none'}`
+      : '';
 
     this.ui.updateHUD({
       quarter: this.quarter,
@@ -355,11 +381,8 @@ export class Game {
       showRun: this.state === STATE.PRE_SNAP && this.currentPlay.runOption?.available,
       runSelected: this.runSelected,
       sprintCooldown: this.sprintCooldown,
-      helper: `${this.helperMessage} ${passingLabel}`.trim(),
+      helper: `${this.helperMessage} ${passingLabel} ${debugLabel}`.trim(),
       controlLabel: `CONTROL: ${controlLabel}`,
-      cameraLabel: this.cameraDebug
-        ? `CAM ${this.camera.x.toFixed(0)},${this.camera.y.toFixed(0)} Z${CAMERA_ZOOM} T:${controlLabel}`
-        : '',
     });
   }
 
@@ -375,15 +398,42 @@ export class Game {
         ? 'Handoff! Follow blocks.'
         : 'Play live! Drag to throw or use Throw/1-5.';
       this.playTimer = 0;
+      this.setupProtectionTimers();
       if (this.runSelected) {
         this.handoffToRB();
       }
     }
   }
 
+  setupProtectionTimers() {
+    const olRatings = this.blockers
+      .filter((player) => player.role.startsWith('OL'))
+      .map((player) => player.ratings.passBlock || 70);
+    const dlRatings = this.defense
+      .filter((player) => player.role === 'DL')
+      .map((player) => player.ratings.passRush || 70);
+
+    const avgOL = olRatings.reduce((sum, val) => sum + val, 0) / olRatings.length;
+    const avgDL = dlRatings.reduce((sum, val) => sum + val, 0) / dlRatings.length;
+    const basePressure = 2.6;
+    const pressureTime = clamp(basePressure + (avgOL - avgDL) * 0.01 + this.randRange(-0.3, 0.3), 1.8, 3.6);
+    const qbAwareness = this.qb?.ratings.awareness || 70;
+    const sackTime = clamp(pressureTime + 0.35 + this.randRange(0, 0.65) - qbAwareness * 0.003, 2.1, 4.2);
+
+    this.playTimers = {
+      pressureDeadline: pressureTime,
+      sackDeadline: sackTime,
+    };
+  }
+
+  randRange(min, max) {
+    return min + Math.random() * (max - min);
+  }
+
   updatePlay(dt) {
     this.playTimer += dt;
-    const defenseSpeedFactor = this.playTimer < this.defenseDelay ? 0.35 : 1;
+    const prePressure = this.playTimer < this.playTimers.pressureDeadline;
+    const defenseSpeedFactor = prePressure ? 0.4 : 1;
 
     if (!this.ball.inAir) {
       if (!this.runSelected) {
@@ -392,7 +442,7 @@ export class Game {
         if (targetThrow) {
           this.throwToTarget(targetThrow);
         } else if (throwData && throwData.power > 0.05) {
-          this.throwBall(throwData.dir, throwData.power);
+          this.throwBall(throwData.dir, throwData.power, this.pickIntendedReceiver(throwData.dir));
         } else if (this.input.consumeQuickThrow()) {
           this.quickThrow();
         } else if (this.ball.carrier === this.qb) {
@@ -424,44 +474,77 @@ export class Game {
       this.checkOutOfBounds();
     }
 
-    this.updateOffenseBlocking(dt, defenseSpeedFactor);
-    this.updateDefense(dt, defenseSpeedFactor);
+    if (!this.ball.inAir && this.ball.carrier === this.qb && this.playTimer > this.playTimers.sackDeadline) {
+      this.endPlay('Sacked.');
+    }
+
+    this.updateOffenseBlocking(dt, defenseSpeedFactor, prePressure);
+    this.updateDefense(dt, defenseSpeedFactor, prePressure);
   }
 
-  updateOffenseBlocking(dt, defenseSpeedFactor) {
+  updateOffenseBlocking(dt, defenseSpeedFactor, prePressure) {
     this.blockers.forEach((blocker) => {
-      const target = this.findNearestDefender(blocker, 40);
+      const target = this.findNearestDefender(blocker, 50);
       if (!target) return;
-      const dir = normalize(target.x - blocker.x, target.y - blocker.y);
-      const speedBoost = this.runSelected ? 1.1 : 0.9;
-      blocker.x += dir.x * blocker.speed * dt * defenseSpeedFactor * speedBoost;
-      blocker.y += dir.y * blocker.speed * dt * defenseSpeedFactor * speedBoost;
+      const toTarget = normalize(target.x - blocker.x, target.y - blocker.y);
+      const qbDir = normalize(this.qb.x - blocker.x, this.qb.y - blocker.y);
+      const facing = toTarget.x * qbDir.x + toTarget.y * qbDir.y;
+      if (facing < 0.2) return;
+
+      if (!target.engagedBy || target.engagedBy === blocker) {
+        target.engagedBy = blocker;
+        if (!target.engagedUntil || target.engagedUntil < this.playTimer) {
+          const blockRating = blocker.ratings.passBlock || 70;
+          const rushRating = target.ratings.passRush || 70;
+          const blockDuration = clamp(1.2 + (blockRating - rushRating) * 0.02 + this.randRange(-0.2, 0.3), 0.8, 2.6);
+          target.engagedUntil = this.playTimer + blockDuration;
+        }
+      }
+
+      const speedBoost = this.runSelected ? 1.1 : 0.85;
+      blocker.x += toTarget.x * blocker.speed * dt * defenseSpeedFactor * speedBoost;
+      blocker.y += toTarget.y * blocker.speed * dt * defenseSpeedFactor * speedBoost;
+
+      if (prePressure) {
+        target.x -= toTarget.x * 18 * dt;
+        target.y -= toTarget.y * 18 * dt;
+      }
     });
   }
 
-  updateDefense(dt, speedFactor) {
-    const react = this.playTimer > this.defenseDelay;
+  updateDefense(dt, speedFactor, prePressure) {
+    const ballThrown = this.ball.inAir;
+    const react = this.playTimer > this.playTimers.pressureDeadline * 0.6;
     this.defense.forEach((defender) => {
       const assignment = defender.assignment || { type: 'zone', anchor: defender.zoneAnchor };
       if (assignment.type === 'rush') {
+        if (ballThrown) {
+          const target = this.ball;
+          const dir = normalize(target.x - defender.x, target.y - defender.y);
+          defender.x += dir.x * defender.speed * dt * 0.7;
+          defender.y += dir.y * defender.speed * dt * 0.7;
+          return;
+        }
         if (!react) return;
-        const blocker = this.findNearestBlocker(defender, 16);
+        const blocker = this.findNearestBlocker(defender, 18);
         const dirToQB = normalize(this.qb.x - defender.x, this.qb.y - defender.y);
         let dir = dirToQB;
         let speed = defender.speed * speedFactor;
-        if (blocker) {
+        if (blocker && defender.engagedUntil > this.playTimer && prePressure) {
           const blockDir = normalize(defender.x - blocker.x, defender.y - blocker.y);
           dir = normalize(dirToQB.x + blockDir.x * 0.8, dirToQB.y + blockDir.y * 0.8);
           speed *= 0.3;
+        } else if (blocker && defender.engagedUntil > this.playTimer) {
+          speed *= 0.55;
         }
         defender.x += dir.x * speed * dt;
         defender.y += dir.y * speed * dt;
       } else if (assignment.type === 'man') {
         let target = assignment.target || this.qb;
-        if (react && this.ball.inAir && length(this.ball.x - defender.x, this.ball.y - defender.y) < 120) {
+        if (ballThrown && length(this.ball.x - defender.x, this.ball.y - defender.y) < 140) {
           target = this.ball;
         }
-        const offset = defender.role === 'CB' ? -10 : -6;
+        const offset = defender.role === 'CB' ? -12 : -8;
         const dir = normalize(target.x - defender.x, target.y - defender.y + offset);
         const speed = defender.speed * speedFactor * (react ? 1 : 0.4);
         defender.x += dir.x * speed * dt;
@@ -469,8 +552,8 @@ export class Game {
       } else if (assignment.type === 'zone') {
         const anchor = assignment.anchor || defender.zoneAnchor || { x: defender.x, y: defender.y };
         let target = anchor;
-        if (react && (this.ball.inAir || this.ball.carrier)) {
-          target = this.ball.inAir ? this.ball : this.ball.carrier;
+        if (ballThrown || this.ball.carrier) {
+          target = ballThrown ? this.ball : this.ball.carrier;
         }
         const dir = normalize(target.x - defender.x, target.y - defender.y);
         const speed = defender.speed * speedFactor * (react ? 0.9 : 0.3);
@@ -511,7 +594,7 @@ export class Game {
     }
   }
 
-  throwBall(direction, power) {
+  throwBall(direction, power, intended) {
     const speed = 220 * power + 120;
     const velocity = {
       x: direction.x * speed,
@@ -520,6 +603,13 @@ export class Game {
     this.ball.throwFrom(this.qb, velocity);
     this.qb.hasBall = false;
     this.ball.carrier = null;
+    this.intendedReceiver = intended || this.intendedReceiver;
+    if (this.intendedReceiver) {
+      const receiver = this.offense.find((player) => player.role === this.intendedReceiver);
+      if (receiver) {
+        this.controlled = receiver;
+      }
+    }
     this.helperMessage = 'Ball in the air!';
   }
 
@@ -529,7 +619,8 @@ export class Game {
     const lead = this.getLeadPosition(target);
     const dir = normalize(lead.x - this.qb.x, lead.y - this.qb.y);
     const distance = clamp(length(lead.x - this.qb.x, lead.y - this.qb.y), 40, 220);
-    this.throwBall(dir, distance / 220);
+    this.intendedReceiver = target.role;
+    this.throwBall(dir, distance / 220, target.role);
   }
 
   throwToTarget(role) {
@@ -538,7 +629,22 @@ export class Game {
     const lead = this.getLeadPosition(target, true);
     const dir = normalize(lead.x - this.qb.x, lead.y - this.qb.y);
     const distance = clamp(length(lead.x - this.qb.x, lead.y - this.qb.y), 40, 240);
-    this.throwBall(dir, distance / 240);
+    this.intendedReceiver = target.role;
+    this.throwBall(dir, distance / 240, target.role);
+  }
+
+  pickIntendedReceiver(direction) {
+    let best = null;
+    let bestScore = -Infinity;
+    this.receivers.forEach((receiver) => {
+      const toReceiver = normalize(receiver.x - this.qb.x, receiver.y - this.qb.y);
+      const score = toReceiver.x * direction.x + toReceiver.y * direction.y;
+      if (score > bestScore) {
+        bestScore = score;
+        best = receiver;
+      }
+    });
+    return best ? best.role : null;
   }
 
   getLeadPosition(player, useVelocity = false) {
@@ -613,6 +719,7 @@ export class Game {
         player.hasBall = true;
         this.ballOn = this.worldYToYard(player.y);
         if (player.team === 'defense') {
+          this.controlled = player;
           this.endDrive('Intercepted! Defense takes over.');
         } else {
           this.controlled = player;
@@ -791,7 +898,7 @@ export class Game {
     ctx.fillStyle = '#f5f1d0';
     ctx.fillRect(FIELD_LEFT + 4, losY - 2, FIELD_WIDTH - 8, 4);
     ctx.fillStyle = '#f9c74f';
-    ctx.fillRect(FIELD_LEFT + 4, firstDownY - 2, FIELD_WIDTH - 8, 4);
+    ctx.fillRect(FIELD_LEFT + 4, firstDownY - 1, FIELD_WIDTH - 8, 2);
   }
 
   drawRoutes(ctx) {
@@ -837,15 +944,19 @@ export class Game {
   }
 
   drawBall(ctx) {
-    ctx.fillStyle = '#f4a261';
+    ctx.fillStyle = '#8a4b2a';
     if (this.ball.carrier && !this.ball.inAir) {
-      ctx.fillRect(this.ball.carrier.x + 3, this.ball.carrier.y - 1, 4, 3);
-      ctx.strokeStyle = '#5a2a0c';
-      ctx.strokeRect(this.ball.carrier.x + 3, this.ball.carrier.y - 1, 4, 3);
+      ctx.beginPath();
+      ctx.ellipse(this.ball.carrier.x + 6, this.ball.carrier.y - 2, 3, 2, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = '#f1c27d';
+      ctx.fillRect(this.ball.carrier.x + 6, this.ball.carrier.y - 3, 1, 1);
     } else if (this.ball.inAir) {
-      ctx.fillRect(this.ball.x - 2, this.ball.y - 2, 4, 4);
-      ctx.strokeStyle = '#5a2a0c';
-      ctx.strokeRect(this.ball.x - 2, this.ball.y - 2, 4, 4);
+      ctx.beginPath();
+      ctx.ellipse(this.ball.x, this.ball.y, 3, 2, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = '#f1c27d';
+      ctx.fillRect(this.ball.x, this.ball.y - 1, 1, 1);
     }
   }
 
