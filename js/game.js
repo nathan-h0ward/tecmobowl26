@@ -186,7 +186,7 @@ export class Game {
         role,
         team: 'offense',
         x: centerX + offset.x + jitter.x,
-        y: losY + offset.y + jitter.y,
+        y: losY - offset.y + jitter.y,
       });
 
       this.offense.push(player);
@@ -209,7 +209,7 @@ export class Game {
         role,
         team: 'defense',
         x: centerX + spot.x + jitter.x,
-        y: losY + spot.y + jitter.y,
+        y: losY - spot.y + jitter.y,
         number: DEF_NUMBERS[role] ? DEF_NUMBERS[role][index % DEF_NUMBERS[role].length] : '99',
       });
       player.zoneAnchor = { x: player.x, y: player.y };
@@ -225,7 +225,7 @@ export class Game {
       if (routeMap[player.role]) {
         const route = routeMap[player.role].map((waypoint) => ({
           x: player.x + waypoint.x,
-          y: player.y + waypoint.y,
+          y: player.y - waypoint.y,
         }));
         player.setRoute(route);
       } else {
@@ -583,7 +583,7 @@ export class Game {
       speed *= 1.45;
     }
     player.x += move.x * speed * dt;
-    player.y += -move.y * speed * dt;
+    player.y += move.y * speed * dt;
     player.x = clamp(player.x, FIELD_LEFT + 10, FIELD_RIGHT - 10);
     player.y = clamp(player.y, FIELD_TOP + 10, FIELD_BOTTOM - 10);
 
@@ -839,11 +839,11 @@ export class Game {
   }
 
   yardToWorldY(yard) {
-    return FIELD_TOP + (yard / 100) * FIELD_HEIGHT;
+    return FIELD_BOTTOM - (yard / 100) * FIELD_HEIGHT;
   }
 
   worldYToYard(y) {
-    const ratio = (y - FIELD_TOP) / FIELD_HEIGHT;
+    const ratio = (FIELD_BOTTOM - y) / FIELD_HEIGHT;
     return clamp(Math.round(ratio * 100), 0, 100);
   }
 

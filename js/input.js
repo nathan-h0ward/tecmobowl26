@@ -71,6 +71,9 @@ export class Input {
   }
 
   onKeyDown(event) {
+    if (event.code === 'Space') {
+      event.preventDefault();
+    }
     this.keys.add(event.code);
     if (event.code === 'Space') {
       this.snapRequested = true;
