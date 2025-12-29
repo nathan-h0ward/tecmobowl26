@@ -2,13 +2,25 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
   <title>TecmoBowl26</title>
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
-  <canvas id="gameCanvas"></canvas>
-
-  <script src="js/main.js"></script>
+  <div id="game-root">
+    <canvas id="game" width="320" height="180" aria-label="Football game"></canvas>
+    <div id="overlay">
+      <div id="scoreboard"></div>
+      <div id="playcall" class="panel hidden">
+        <div class="panel-title">Pick a Play</div>
+        <div class="play-buttons" id="play-buttons"></div>
+      </div>
+      <button id="snap" class="action hidden">Snap</button>
+      <button id="sprint" class="action">Sprint</button>
+      <button id="throw" class="action hidden">Throw</button>
+      <div id="helper"></div>
+    </div>
+  </div>
+  <script type="module" src="js/main.js"></script>
 </body>
 </html>

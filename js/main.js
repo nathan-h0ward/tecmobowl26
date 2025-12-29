@@ -1,17 +1,36 @@
-const canvas = document.getElementById("gameCanvas");
-const ctx = canvas.getContext("2d");
+import { Game } from './game.js';
+import { Input } from './input.js';
+import { UI } from './ui.js';
 
-canvas.width = 320;
-canvas.height = 180;
+const canvas = document.getElementById('game');
+const context = canvas.getContext('2d');
+context.imageSmoothingEnabled = false;
 
-function loop() {
-  ctx.fillStyle = "#1e7f3f";
-  ctx.fillRect(0, 0, canvas.width, canvas.height);
+const input = new Input(canvas);
+const ui = new UI();
+const game = new Game(canvas, context, input, ui);
+ui.bindGame(game);
 
-  ctx.fillStyle = "white";
-  ctx.fillText("TecmoBowl26 loading…", 80, 90);
+let lastTime = performance.now();
 
+function loop(now) {
+  const delta = Math.min((now - lastTime) / 1000, 0.05);
+  lastTime = now;
+  game.update(delta);
+  game.render();
   requestAnimationFrame(loop);
 }
 
-loop();
+requestAnimationFrame(loop);
+
+window.addEventListener('resize', () => game.handleResize());
+window.addEventListener('orientationchange', () => game.handleResize());
+
+// Prevent page scrolling during gameplay.
+document.addEventListener(
+  'touchmove',
+  (event) => {
+    event.preventDefault();
+  },
+  { passive: false }
+);
