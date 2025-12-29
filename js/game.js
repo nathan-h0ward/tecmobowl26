@@ -16,7 +16,8 @@ const FIELD_BOTTOM = FIELD_TOP + FIELD_HEIGHT;
 const FIELD_LEFT = 60;
 const FIELD_RIGHT = FIELD_LEFT + FIELD_WIDTH;
 const CAMERA_LERP = 0.12;
-const CAMERA_ZOOM = 2.4;
+const CAMERA_ZOOM = 1.45;
+const CAMERA_LOOKAHEAD = 90;
 
 const DIGITS = {
   '0': ['111', '101', '101', '101', '111'],
@@ -79,6 +80,8 @@ export class Game {
     this.runSelected = false;
 
     this.camera = { x: FIELD_LEFT + FIELD_WIDTH / 2, y: FIELD_TOP + 100 };
+    this.cameraLook = { x: 0, y: 1 };
+    this.lastControlPos = { x: 0, y: 0 };
 
     this.debug = false;
 
@@ -151,6 +154,7 @@ export class Game {
 
     this.runSelected = this.currentPlay.type === 'run';
     this.controlled = this.qb;
+    this.lastControlPos = { x: this.controlled.x, y: this.controlled.y };
     this.updateCamera(0);
   }
 
@@ -679,8 +683,23 @@ export class Game {
     const viewWidth = this.canvas.width / CAMERA_ZOOM;
     const viewHeight = this.canvas.height / CAMERA_ZOOM;
 
-    this.camera.x += (target.x - this.camera.x) * CAMERA_LERP;
-    this.camera.y += (target.y - this.camera.y) * CAMERA_LERP;
+    if (target === this.controlled) {
+      const dx = target.x - this.lastControlPos.x;
+      const dy = target.y - this.lastControlPos.y;
+      if (Math.abs(dx) + Math.abs(dy) > 0.5) {
+        const dir = normalize(dx, dy);
+        this.cameraLook = dir;
+      }
+      this.lastControlPos = { x: target.x, y: target.y };
+    }
+
+    const lookaheadX = this.cameraLook.x * CAMERA_LOOKAHEAD;
+    const lookaheadY = this.cameraLook.y * CAMERA_LOOKAHEAD;
+    const targetX = target.x + lookaheadX;
+    const targetY = target.y + lookaheadY;
+
+    this.camera.x += (targetX - this.camera.x) * CAMERA_LERP;
+    this.camera.y += (targetY - this.camera.y) * CAMERA_LERP;
 
     this.camera.x = clamp(this.camera.x, FIELD_LEFT + viewWidth / 2, FIELD_RIGHT - viewWidth / 2);
     this.camera.y = clamp(this.camera.y, FIELD_TOP + viewHeight / 2, FIELD_BOTTOM - viewHeight / 2);
