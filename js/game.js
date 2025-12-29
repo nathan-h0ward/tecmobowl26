@@ -1,4 +1,4 @@
-import { Ball, Player, TEAMS, clamp, length, normalize } from './entities.js';
+import { Ball, Player, POSITION_STYLES, clamp, length, normalize } from './entities.js';
 import { PLAYS } from './playbook.js';
 
 const STATE = {
@@ -7,6 +7,13 @@ const STATE = {
   PLAY_RUNNING: 'PLAY_RUNNING',
   PLAY_OVER: 'PLAY_OVER',
   DRIVE_OVER: 'DRIVE_OVER',
+};
+
+const DEF_NUMBERS = {
+  DL: ['90', '91', '92', '93', '94'],
+  LB: ['50', '51', '52', '53', '54'],
+  CB: ['21', '23', '25'],
+  S: ['31', '33', '35'],
 };
 
 export class Game {
@@ -30,7 +37,6 @@ export class Game {
     this.receivers = [];
     this.blockers = [];
     this.rushers = [];
-    this.zoneDefenders = [];
 
     this.qb = null;
     this.rb = null;
@@ -47,6 +53,9 @@ export class Game {
     this.playTimer = 0;
     this.defenseDelay = 0.5;
     this.routePreviewTimer = 0;
+    this.runSelected = false;
+
+    this.debug = false;
 
     this.selectPlay(0);
     this.handleResize();
@@ -76,6 +85,10 @@ export class Game {
     this.input.quickThrowRequested = true;
   }
 
+  requestRunToggle() {
+    this.input.runToggleRequested = true;
+  }
+
   selectPlay(index) {
     this.currentPlay = PLAYS[index];
     if (this.state === STATE.PLAYCALL) {
@@ -92,53 +105,66 @@ export class Game {
     this.receivers = [];
     this.blockers = [];
     this.rushers = [];
-    this.zoneDefenders = [];
 
     const lineY = this.yardToY(this.ballOn);
-    const qbX = this.yardToX(0);
-    const qbY = lineY + 12;
+    const centerX = this.yardToX(0);
 
-    this.qb = new Player({ x: qbX, y: qbY, team: 'offense', speed: 40, role: 'QB' });
-    this.offense.push(this.qb);
-    this.controlled = this.qb;
-
-    const rb = new Player({ x: qbX - 10, y: qbY + 10, team: 'offense', speed: 42, role: 'RB' });
-    this.rb = rb;
-    this.offense.push(rb);
-
-    const olOffsets = [-20, -10, 0, 10, 20];
-    olOffsets.forEach((offset, index) => {
-      const ol = new Player({
-        x: qbX + offset,
-        y: lineY + 2,
-        team: 'offense',
-        speed: 28,
-        role: `OL${index + 1}`,
-      });
-      this.offense.push(ol);
-      this.blockers.push(ol);
-    });
-
-    const te = new Player({ x: qbX + 30, y: lineY + 2, team: 'offense', speed: 34, role: 'TE' });
-    this.offense.push(te);
-    this.receivers.push(te);
-    this.blockers.push(te);
-
-    const wr1 = new Player({ x: qbX - 45, y: lineY - 6, team: 'offense', speed: 40, role: 'WR1' });
-    const wr2 = new Player({ x: qbX + 45, y: lineY - 6, team: 'offense', speed: 40, role: 'WR2' });
-    const wr3 = new Player({ x: qbX + 12, y: lineY - 10, team: 'offense', speed: 39, role: 'WR3' });
-
-    this.offense.push(wr1, wr2, wr3);
-    this.receivers.push(wr1, wr2, wr3);
-
+    this.spawnOffense(lineY, centerX);
+    this.spawnDefense(lineY, centerX);
     this.assignRoutes();
-
-    this.spawnDefense(lineY, qbX);
+    this.assignDefense();
 
     this.ball.inAir = false;
     this.ball.carrier = this.qb;
     this.qb.hasBall = true;
     this.playStartBallOn = this.ballOn;
+
+    this.runSelected = this.currentPlay.type === 'run';
+  }
+
+  spawnOffense(lineY, centerX) {
+    const formation = this.currentPlay.offenseFormation;
+    const roles = ['QB', 'RB', 'TE', 'WR1', 'WR2', 'WR3', 'OL1', 'OL2', 'OL3', 'OL4', 'OL5'];
+
+    roles.forEach((role) => {
+      const offset = formation[role];
+      if (!offset) return;
+      const jitter = role === 'QB' ? { x: 0, y: 0 } : this.randomJitter();
+      const player = this.createPlayer({
+        role,
+        team: 'offense',
+        x: centerX + offset.x + jitter.x,
+        y: lineY + offset.y + jitter.y,
+      });
+
+      this.offense.push(player);
+      if (role === 'QB') this.qb = player;
+      if (role === 'RB') this.rb = player;
+      if (role.startsWith('WR') || role === 'TE' || role === 'RB') this.receivers.push(player);
+      if (role.startsWith('OL') || role === 'TE') this.blockers.push(player);
+    });
+
+    this.controlled = this.qb;
+  }
+
+  spawnDefense(lineY, centerX) {
+    const formation = this.currentPlay.defenseFormation;
+    const counts = { DL: 0, LB: 0, CB: 0, S: 0 };
+    formation.forEach((spot) => {
+      const jitter = this.randomJitter();
+      const role = spot.role;
+      const index = counts[role] || 0;
+      counts[role] = index + 1;
+      const player = this.createPlayer({
+        role,
+        team: 'defense',
+        x: centerX + spot.x + jitter.x,
+        y: lineY + spot.y + jitter.y,
+        number: DEF_NUMBERS[role] ? DEF_NUMBERS[role][index % DEF_NUMBERS[role].length] : '99',
+      });
+      player.zoneAnchor = { x: player.x, y: player.y };
+      this.defense.push(player);
+    });
   }
 
   assignRoutes() {
@@ -158,28 +184,61 @@ export class Game {
     });
   }
 
-  spawnDefense(lineY, qbX) {
-    const dlOffsets = [-20, -8, 8, 20];
-    dlOffsets.forEach((offset) => {
-      const dl = new Player({ x: qbX + offset, y: lineY - 8, team: 'defense', speed: 34, role: 'DL' });
-      this.defense.push(dl);
-      this.rushers.push(dl);
-    });
+  assignDefense() {
+    const style = this.currentPlay.defenseStyle;
+    const eligible = this.receivers;
 
-    const lbOffsets = [-22, 0, 22];
-    lbOffsets.forEach((offset, index) => {
-      const lb = new Player({ x: qbX + offset, y: lineY - 24, team: 'defense', speed: 33, role: `LB${index + 1}` });
-      this.defense.push(lb);
-      this.rushers.push(lb);
-    });
+    this.defense.forEach((defender) => {
+      defender.assignment = null;
+      if (defender.role === 'DL') {
+        defender.assignment = { type: 'rush' };
+        this.rushers.push(defender);
+        return;
+      }
 
-    const dbOffsets = [-38, -12, 12, 38];
-    dbOffsets.forEach((offset, index) => {
-      const db = new Player({ x: qbX + offset, y: lineY - 42, team: 'defense', speed: 36, role: `DB${index + 1}` });
-      this.defense.push(db);
-      this.zoneDefenders.push(db);
-      db.zoneAnchor = { x: db.x, y: db.y };
+      if (style === 'man') {
+        const target = this.pickManTarget(defender, eligible);
+        defender.assignment = { type: 'man', target };
+      } else if (style === 'zone') {
+        defender.assignment = { type: 'zone', anchor: defender.zoneAnchor };
+      } else if (style === 'blitz') {
+        if (defender.role === 'LB' && Math.random() > 0.5) {
+          defender.assignment = { type: 'rush' };
+          this.rushers.push(defender);
+        } else {
+          defender.assignment = { type: 'zone', anchor: defender.zoneAnchor };
+        }
+      }
     });
+  }
+
+  pickManTarget(defender, eligible) {
+    if (!eligible.length) return null;
+    if (defender.role === 'CB') {
+      return eligible.find((player) => player.role.startsWith('WR')) || eligible[0];
+    }
+    if (defender.role === 'S') {
+      return eligible.find((player) => player.role === 'WR3') || eligible[0];
+    }
+    return eligible.find((player) => player.role === 'RB' || player.role === 'TE') || eligible[0];
+  }
+
+  createPlayer({ role, team, x, y, number }) {
+    const style = POSITION_STYLES[role] || POSITION_STYLES.QB;
+    return new Player({
+      x,
+      y,
+      team,
+      speed: team === 'offense' ? 40 : 36,
+      role,
+      number: number || style.number,
+      colors: { primary: style.primary, secondary: style.secondary },
+    });
+  }
+
+  randomJitter() {
+    const jitter = () => Math.floor(Math.random() * 5) - 2;
+    return { x: jitter(), y: jitter() };
   }
 
   updateClock(dt) {
@@ -205,6 +264,10 @@ export class Game {
         this.state = STATE.PLAYCALL;
         this.helperMessage = 'Pick your next play.';
       }
+    }
+
+    if (this.input.consumeDebugToggle()) {
+      this.debug = !this.debug;
     }
 
     this.updateClock(dt);
@@ -238,23 +301,30 @@ export class Game {
       toGo: this.toGo,
       ballOn: this.ballOn,
       score: this.score,
+      playName: `${this.currentPlay.name} (${this.currentPlay.offenseName} vs ${this.currentPlay.defenseName})`,
       showPlaycall: this.state === STATE.PLAYCALL,
       showSnap: this.state === STATE.PRE_SNAP,
-      showThrow: this.state === STATE.PLAY_RUNNING && this.currentPlay.type === 'pass' && this.ball.carrier === this.qb && !this.ball.inAir,
+      showThrow: this.state === STATE.PLAY_RUNNING && !this.runSelected && this.ball.carrier === this.qb && !this.ball.inAir,
+      showRun: this.state === STATE.PRE_SNAP && this.currentPlay.runOption?.available,
+      runSelected: this.runSelected,
       sprintCooldown: this.sprintCooldown,
       helper: this.helperMessage,
     });
   }
 
   updatePreSnap() {
+    if (this.currentPlay.runOption?.available && this.input.consumeRunToggle()) {
+      this.runSelected = !this.runSelected;
+      this.helperMessage = this.runSelected ? 'Run selected. Snap for handoff.' : 'Pass selected. Snap when ready.';
+    }
+
     if (this.input.consumeSnap()) {
       this.state = STATE.PLAY_RUNNING;
-      this.helperMessage =
-        this.currentPlay.type === 'run'
-          ? 'Handoff! Follow blocks.'
-          : 'Play live! Drag to throw or use Throw/1-5.';
+      this.helperMessage = this.runSelected
+        ? 'Handoff! Follow blocks.'
+        : 'Play live! Drag to throw or use Throw/1-5.';
       this.playTimer = 0;
-      if (this.currentPlay.type === 'run') {
+      if (this.runSelected) {
         this.handoffToRB();
       }
     }
@@ -265,7 +335,7 @@ export class Game {
     const defenseSpeedFactor = this.playTimer < this.defenseDelay ? 0.25 : 1;
 
     if (!this.ball.inAir) {
-      if (this.currentPlay.type === 'pass') {
+      if (!this.runSelected) {
         const targetThrow = this.input.consumeTargetThrow();
         const throwData = this.input.consumeThrow();
         if (targetThrow) {
@@ -306,49 +376,53 @@ export class Game {
 
   updateOffenseBlocking(dt, defenseSpeedFactor) {
     this.blockers.forEach((blocker) => {
-      if (this.ball.carrier !== this.qb && this.currentPlay.type === 'pass' && blocker.role.startsWith('OL')) {
-        return;
-      }
-      const target = this.findNearestDefender(blocker, 26);
+      const target = this.findNearestDefender(blocker, 28);
       if (!target) return;
       const dir = normalize(target.x - blocker.x, target.y - blocker.y);
-      blocker.x += dir.x * blocker.speed * dt * defenseSpeedFactor;
-      blocker.y += dir.y * blocker.speed * dt * defenseSpeedFactor;
+      const speedBoost = this.runSelected ? 1.1 : 0.9;
+      blocker.x += dir.x * blocker.speed * dt * defenseSpeedFactor * speedBoost;
+      blocker.y += dir.y * blocker.speed * dt * defenseSpeedFactor * speedBoost;
     });
   }
 
   updateDefense(dt, speedFactor) {
-    if (this.currentPlay.type === 'pass') {
-      this.rushers.forEach((defender) => {
-        const target = this.qb;
+    const react = this.playTimer > this.defenseDelay;
+    this.defense.forEach((defender) => {
+      const assignment = defender.assignment || { type: 'zone', anchor: defender.zoneAnchor };
+      if (assignment.type === 'rush') {
+        if (!react) return;
         const blocker = this.findNearestBlocker(defender, 12);
-        let dir = normalize(target.x - defender.x, target.y - defender.y);
+        const dirToQB = normalize(this.qb.x - defender.x, this.qb.y - defender.y);
+        let dir = dirToQB;
         let speed = defender.speed * speedFactor;
         if (blocker) {
           const blockDir = normalize(defender.x - blocker.x, defender.y - blocker.y);
-          dir = normalize(dir.x + blockDir.x * 0.8, dir.y + blockDir.y * 0.8);
-          speed *= 0.35;
+          dir = normalize(dirToQB.x + blockDir.x * 0.8, dirToQB.y + blockDir.y * 0.8);
+          speed *= 0.3;
         }
         defender.x += dir.x * speed * dt;
         defender.y += dir.y * speed * dt;
-      });
-
-      this.zoneDefenders.forEach((defender) => {
-        const anchor = defender.zoneAnchor || { x: defender.x, y: defender.y };
-        const target = this.ball.inAir ? this.ball : anchor;
+      } else if (assignment.type === 'man') {
+        let target = assignment.target || this.qb;
+        if (react && this.ball.inAir && length(this.ball.x - defender.x, this.ball.y - defender.y) < 60) {
+          target = this.ball;
+        }
         const dir = normalize(target.x - defender.x, target.y - defender.y);
-        defender.x += dir.x * defender.speed * dt * speedFactor * 0.8;
-        defender.y += dir.y * defender.speed * dt * speedFactor * 0.8;
-      });
-    } else {
-      this.defense.forEach((defender) => {
-        if (this.playTimer < this.defenseDelay) return;
-        const target = this.ball.carrier || this.qb;
+        const speed = defender.speed * speedFactor * (react ? 1 : 0.4);
+        defender.x += dir.x * speed * dt;
+        defender.y += dir.y * speed * dt;
+      } else if (assignment.type === 'zone') {
+        const anchor = assignment.anchor || defender.zoneAnchor || { x: defender.x, y: defender.y };
+        let target = anchor;
+        if (react && (this.ball.inAir || this.ball.carrier)) {
+          target = this.ball.inAir ? this.ball : this.ball.carrier;
+        }
         const dir = normalize(target.x - defender.x, target.y - defender.y);
-        defender.x += dir.x * defender.speed * dt;
-        defender.y += dir.y * defender.speed * dt;
-      });
-    }
+        const speed = defender.speed * speedFactor * (react ? 0.9 : 0.3);
+        defender.x += dir.x * speed * dt;
+        defender.y += dir.y * speed * dt;
+      }
+    });
   }
 
   updateSprintTimers(dt) {
@@ -372,7 +446,7 @@ export class Game {
     }
     player.x += move.x * speed * dt;
     player.y += move.y * speed * dt;
-    player.x = clamp(player.x, 20, this.canvas.width - 20);
+    player.x = clamp(player.x, 14, this.canvas.width - 14);
     player.y = clamp(player.y, 10, this.canvas.height - 10);
 
     if (!this.ball.inAir && this.ball.carrier === player) {
@@ -406,18 +480,23 @@ export class Game {
   throwToTarget(role) {
     const target = this.offense.find((player) => player.role === role);
     if (!target) return;
-    const lead = this.getLeadPosition(target);
+    const lead = this.getLeadPosition(target, true);
     const dir = normalize(lead.x - this.qb.x, lead.y - this.qb.y);
     const distance = clamp(length(lead.x - this.qb.x, lead.y - this.qb.y), 20, 120);
     this.throwBall(dir, distance / 120);
   }
 
-  getLeadPosition(player) {
+  getLeadPosition(player, useVelocity = false) {
     let target = { x: player.x, y: player.y };
     if (player.route.length && player.routeIndex < player.route.length) {
       const next = player.route[player.routeIndex];
       const dir = normalize(next.x - player.x, next.y - player.y);
       target = { x: player.x + dir.x * 10, y: player.y + dir.y * 10 };
+    }
+    if (useVelocity && player.route.length && player.routeIndex < player.route.length) {
+      const next = player.route[player.routeIndex];
+      const dir = normalize(next.x - player.x, next.y - player.y);
+      target = { x: target.x + dir.x * 6, y: target.y + dir.y * 6 };
     }
     return target;
   }
@@ -475,7 +554,7 @@ export class Game {
     const candidates = [...this.receivers, ...this.defense, this.qb, this.rb];
     for (const player of candidates) {
       const dist = length(player.x - this.ball.x, player.y - this.ball.y);
-      if (dist < player.radius + 2) {
+      if (dist < player.radius + 3) {
         this.ball.inAir = false;
         this.ball.carrier = player;
         player.hasBall = true;
@@ -576,6 +655,9 @@ export class Game {
     this.drawBall(ctx);
     this.drawJoystick(ctx);
     this.drawThrowArrow(ctx);
+    if (this.debug) {
+      this.drawDebug(ctx);
+    }
   }
 
   drawField(ctx) {
@@ -617,19 +699,21 @@ export class Game {
   }
 
   drawPlayers(ctx) {
-    this.offense.forEach((player) => {
-      ctx.fillStyle = TEAMS.offense.primary;
-      ctx.fillRect(player.x - 4, player.y - 4, 8, 8);
-      ctx.fillStyle = TEAMS.offense.secondary;
-      ctx.fillRect(player.x - 2, player.y - 2, 4, 4);
-    });
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.font = '6px "Press Start 2P", monospace';
 
-    this.defense.forEach((defender) => {
-      ctx.fillStyle = TEAMS.defense.primary;
-      ctx.fillRect(defender.x - 4, defender.y - 4, 8, 8);
-      ctx.fillStyle = TEAMS.defense.secondary;
-      ctx.fillRect(defender.x - 2, defender.y - 2, 4, 4);
-    });
+    const drawPlayer = (player) => {
+      ctx.fillStyle = player.colors.primary;
+      ctx.fillRect(player.x - 5, player.y - 5, 10, 10);
+      ctx.fillStyle = player.colors.secondary;
+      ctx.fillRect(player.x - 3, player.y - 3, 6, 6);
+      ctx.fillStyle = '#0b0b0b';
+      ctx.fillText(player.number, player.x, player.y + 1);
+    };
+
+    this.offense.forEach(drawPlayer);
+    this.defense.forEach(drawPlayer);
   }
 
   drawBall(ctx) {
@@ -669,5 +753,28 @@ export class Game {
     ctx.fillRect(10, this.canvas.height - 14, 40 * power, 4);
     ctx.strokeStyle = 'rgba(255,255,255,0.5)';
     ctx.strokeRect(10, this.canvas.height - 14, 40, 4);
+  }
+
+  drawDebug(ctx) {
+    ctx.strokeStyle = 'rgba(255,255,255,0.2)';
+    this.defense.forEach((defender) => {
+      if (defender.assignment?.type === 'man' && defender.assignment.target) {
+        ctx.beginPath();
+        ctx.moveTo(defender.x, defender.y);
+        ctx.lineTo(defender.assignment.target.x, defender.assignment.target.y);
+        ctx.stroke();
+      } else if (defender.assignment?.type === 'zone' && defender.assignment.anchor) {
+        ctx.strokeRect(defender.assignment.anchor.x - 8, defender.assignment.anchor.y - 8, 16, 16);
+      }
+      ctx.fillStyle = '#ffffff';
+      ctx.font = '6px "Press Start 2P", monospace';
+      ctx.fillText(defender.role, defender.x, defender.y - 8);
+    });
+
+    this.offense.forEach((player) => {
+      ctx.fillStyle = '#ffffff';
+      ctx.font = '6px "Press Start 2P", monospace';
+      ctx.fillText(player.role, player.x, player.y - 8);
+    });
   }
 }

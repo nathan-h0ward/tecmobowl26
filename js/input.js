@@ -8,6 +8,8 @@ export class Input {
     this.throwReleased = null;
     this.quickThrowRequested = false;
     this.targetThrowRequested = null;
+    this.runToggleRequested = false;
+    this.debugToggleRequested = false;
     this.snapRequested = false;
     this.sprintRequested = false;
     this.keys = new Set();
@@ -84,6 +86,8 @@ export class Input {
     if (event.code === 'Digit3') this.targetThrowRequested = 'WR3';
     if (event.code === 'Digit4') this.targetThrowRequested = 'TE';
     if (event.code === 'Digit5') this.targetThrowRequested = 'RB';
+    if (event.code === 'KeyR') this.runToggleRequested = true;
+    if (event.code === 'KeyD') this.debugToggleRequested = true;
   }
 
   onKeyUp(event) {
@@ -137,6 +141,18 @@ export class Input {
     const target = this.targetThrowRequested;
     this.targetThrowRequested = null;
     return target;
+  }
+
+  consumeRunToggle() {
+    const wasRequested = this.runToggleRequested;
+    this.runToggleRequested = false;
+    return wasRequested;
+  }
+
+  consumeDebugToggle() {
+    const wasRequested = this.debugToggleRequested;
+    this.debugToggleRequested = false;
+    return wasRequested;
   }
 
   consumeSnap() {

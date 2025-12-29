@@ -1,6 +1,19 @@
-export const TEAMS = {
-  offense: { primary: '#ffd166', secondary: '#b5831c' },
-  defense: { primary: '#7bdff2', secondary: '#31708a' },
+export const POSITION_STYLES = {
+  QB: { primary: '#ffb703', secondary: '#b76e00', number: '12' },
+  RB: { primary: '#f28482', secondary: '#b4554f', number: '22' },
+  WR1: { primary: '#ffd166', secondary: '#b5831c', number: '81' },
+  WR2: { primary: '#f4d35e', secondary: '#b28c1d', number: '11' },
+  WR3: { primary: '#ffe29a', secondary: '#bca25a', number: '19' },
+  TE: { primary: '#90be6d', secondary: '#4f7a39', number: '87' },
+  OL1: { primary: '#577590', secondary: '#364c60', number: '60' },
+  OL2: { primary: '#577590', secondary: '#364c60', number: '61' },
+  OL3: { primary: '#577590', secondary: '#364c60', number: '62' },
+  OL4: { primary: '#577590', secondary: '#364c60', number: '63' },
+  OL5: { primary: '#577590', secondary: '#364c60', number: '64' },
+  DL: { primary: '#8d99ae', secondary: '#5d6878', number: '90' },
+  LB: { primary: '#6c757d', secondary: '#495057', number: '52' },
+  CB: { primary: '#48cae4', secondary: '#1b9db7', number: '21' },
+  S: { primary: '#4ea8de', secondary: '#277da1', number: '31' },
 };
 
 export function clamp(value, min, max) {
@@ -20,18 +33,21 @@ export function normalize(x, y) {
 }
 
 export class Player {
-  constructor({ x, y, team, speed, role }) {
+  constructor({ x, y, team, speed, role, number, colors }) {
     this.x = x;
     this.y = y;
     this.team = team;
     this.speed = speed;
     this.role = role;
-    this.radius = 4;
+    this.radius = 5;
     this.route = [];
     this.routeIndex = 0;
     this.hasBall = false;
     this.blockTarget = null;
     this.zoneAnchor = null;
+    this.assignment = null;
+    this.number = number || '';
+    this.colors = colors || { primary: '#fff', secondary: '#888' };
   }
 
   setRoute(route) {

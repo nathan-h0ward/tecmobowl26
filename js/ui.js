@@ -8,6 +8,7 @@ export class UI {
     this.snapButton = document.getElementById('snap');
     this.sprintButton = document.getElementById('sprint');
     this.throwButton = document.getElementById('throw');
+    this.runButton = document.getElementById('run');
     this.helper = document.getElementById('helper');
     this.game = null;
 
@@ -21,6 +22,10 @@ export class UI {
 
     this.throwButton.addEventListener('click', () => {
       if (this.game) this.game.requestQuickThrow();
+    });
+
+    this.runButton.addEventListener('click', () => {
+      if (this.game) this.game.requestRunToggle();
     });
 
     this.renderPlayButtons();
@@ -43,7 +48,7 @@ export class UI {
   }
 
   updateHUD(data) {
-    this.scoreboard.innerHTML = `Q${data.quarter} ${data.clock}<br>Down ${data.down} & ${data.toGo}<br>Ball ${data.ballOn} | Score ${data.score}`;
+    this.scoreboard.innerHTML = `Q${data.quarter} ${data.clock}<br>Down ${data.down} & ${data.toGo}<br>Ball ${data.ballOn} | Score ${data.score}<br>${data.playName}`;
     this.helper.textContent = data.helper;
 
     if (data.showPlaycall) {
@@ -62,6 +67,13 @@ export class UI {
       this.throwButton.classList.remove('hidden');
     } else {
       this.throwButton.classList.add('hidden');
+    }
+
+    if (data.showRun) {
+      this.runButton.classList.remove('hidden');
+      this.runButton.textContent = data.runSelected ? 'Run ✓' : 'Run';
+    } else {
+      this.runButton.classList.add('hidden');
     }
 
     if (data.sprintCooldown > 0) {

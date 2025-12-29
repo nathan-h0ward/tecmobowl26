@@ -120,6 +120,12 @@ html, body {
   border-color: #385a7a;
 }
 
+#run {
+  bottom: 216px;
+  background: #2b4b2c;
+  border-color: #4e7a4f;
+}
+
 #helper {
   position: absolute;
   bottom: 18px;
