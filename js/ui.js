@@ -9,6 +9,13 @@ export class UI {
     this.sprintButton = document.getElementById('sprint');
     this.throwButton = document.getElementById('throw');
     this.runButton = document.getElementById('run');
+    this.passButtons = {
+      WR1: document.getElementById('pass-wr1'),
+      WR2: document.getElementById('pass-wr2'),
+      WR3: document.getElementById('pass-wr3'),
+      TE: document.getElementById('pass-te'),
+      RB: document.getElementById('pass-rb'),
+    };
     this.helper = document.getElementById('helper');
     this.game = null;
 
@@ -26,6 +33,12 @@ export class UI {
 
     this.runButton.addEventListener('click', () => {
       if (this.game) this.game.requestRunToggle();
+    });
+
+    Object.entries(this.passButtons).forEach(([role, button]) => {
+      button.addEventListener('click', () => {
+        if (this.game) this.game.requestTargetThrow(role);
+      });
     });
 
     this.renderPlayButtons();
@@ -48,7 +61,7 @@ export class UI {
   }
 
   updateHUD(data) {
-    this.scoreboard.innerHTML = `Q${data.quarter} ${data.clock}<br>Down ${data.down} & ${data.toGo}<br>Ball ${data.ballOn} | Score ${data.score}<br>${data.playName}`;
+    this.scoreboard.innerHTML = `Q${data.quarter} ${data.clock}<br>Down ${data.down} & ${data.toGo}<br>Ball ${data.ballOn} | Score ${data.score}<br>${data.playName}<br>${data.controlLabel}`;
     this.helper.textContent = data.helper;
 
     if (data.showPlaycall) {
@@ -65,8 +78,10 @@ export class UI {
 
     if (data.showThrow) {
       this.throwButton.classList.remove('hidden');
+      Object.values(this.passButtons).forEach((button) => button.classList.remove('hidden'));
     } else {
       this.throwButton.classList.add('hidden');
+      Object.values(this.passButtons).forEach((button) => button.classList.add('hidden'));
     }
 
     if (data.showRun) {

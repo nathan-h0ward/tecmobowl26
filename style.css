@@ -126,6 +126,26 @@ html, body {
   border-color: #4e7a4f;
 }
 
+.pass-buttons {
+  position: absolute;
+  right: 18px;
+  top: 90px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  pointer-events: auto;
+}
+
+.pass-button {
+  width: 32px;
+  height: 32px;
+  border-radius: 6px;
+  border: 2px solid #385a7a;
+  background: #203045;
+  color: var(--text);
+  font-size: 10px;
+}
+
 #helper {
   position: absolute;
   bottom: 18px;

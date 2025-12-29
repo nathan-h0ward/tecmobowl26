@@ -1,10 +1,10 @@
 export const POSITION_STYLES = {
-  QB: { primary: '#ffb703', secondary: '#b76e00', number: '12' },
-  RB: { primary: '#f28482', secondary: '#b4554f', number: '22' },
-  WR1: { primary: '#ffd166', secondary: '#b5831c', number: '81' },
+  QB: { primary: '#ffb703', secondary: '#b76e00', number: '1' },
+  RB: { primary: '#f28482', secondary: '#b4554f', number: '2' },
+  WR1: { primary: '#ffd166', secondary: '#b5831c', number: '10' },
   WR2: { primary: '#f4d35e', secondary: '#b28c1d', number: '11' },
-  WR3: { primary: '#ffe29a', secondary: '#bca25a', number: '19' },
-  TE: { primary: '#90be6d', secondary: '#4f7a39', number: '87' },
+  WR3: { primary: '#ffe29a', secondary: '#bca25a', number: '12' },
+  TE: { primary: '#90be6d', secondary: '#4f7a39', number: '80' },
   OL1: { primary: '#577590', secondary: '#364c60', number: '60' },
   OL2: { primary: '#577590', secondary: '#364c60', number: '61' },
   OL3: { primary: '#577590', secondary: '#364c60', number: '62' },
@@ -39,7 +39,7 @@ export class Player {
     this.team = team;
     this.speed = speed;
     this.role = role;
-    this.radius = 5;
+    this.radius = 6;
     this.route = [];
     this.routeIndex = 0;
     this.hasBall = false;
@@ -63,7 +63,7 @@ export class Player {
     const dx = target.x - this.x;
     const dy = target.y - this.y;
     const dist = length(dx, dy);
-    if (dist < 1) {
+    if (dist < 2) {
       this.routeIndex += 1;
       return;
     }
@@ -99,6 +99,6 @@ export class Ball {
     }
     this.x += this.vx * dt;
     this.y += this.vy * dt;
-    this.vy += 6 * dt;
+    this.vy += 8 * dt;
   }
 }

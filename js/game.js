@@ -9,6 +9,28 @@ const STATE = {
   DRIVE_OVER: 'DRIVE_OVER',
 };
 
+const FIELD_WIDTH = 1000;
+const FIELD_HEIGHT = 3600;
+const FIELD_TOP = 200;
+const FIELD_BOTTOM = FIELD_TOP + FIELD_HEIGHT;
+const FIELD_LEFT = 60;
+const FIELD_RIGHT = FIELD_LEFT + FIELD_WIDTH;
+const CAMERA_LERP = 0.12;
+const CAMERA_ZOOM = 2.4;
+
+const DIGITS = {
+  '0': ['111', '101', '101', '101', '111'],
+  '1': ['010', '110', '010', '010', '111'],
+  '2': ['111', '001', '111', '100', '111'],
+  '3': ['111', '001', '111', '001', '111'],
+  '4': ['101', '101', '111', '001', '001'],
+  '5': ['111', '100', '111', '001', '111'],
+  '6': ['111', '100', '111', '101', '111'],
+  '7': ['111', '001', '001', '010', '010'],
+  '8': ['111', '101', '111', '101', '111'],
+  '9': ['111', '101', '111', '001', '111'],
+};
+
 const DEF_NUMBERS = {
   DL: ['90', '91', '92', '93', '94'],
   LB: ['50', '51', '52', '53', '54'],
@@ -29,6 +51,7 @@ export class Game {
     this.score = 0;
 
     this.ballOn = 25;
+    this.losYard = 25;
     this.down = 1;
     this.toGo = 10;
 
@@ -51,9 +74,11 @@ export class Game {
     this.helperMessage = 'Pick a play to start the drive.';
 
     this.playTimer = 0;
-    this.defenseDelay = 0.5;
+    this.defenseDelay = 0.35;
     this.routePreviewTimer = 0;
     this.runSelected = false;
+
+    this.camera = { x: FIELD_LEFT + FIELD_WIDTH / 2, y: FIELD_TOP + 100 };
 
     this.debug = false;
 
@@ -67,6 +92,7 @@ export class Game {
 
   resetDrive(message) {
     this.ballOn = 25;
+    this.losYard = 25;
     this.down = 1;
     this.toGo = 10;
     this.state = STATE.PLAYCALL;
@@ -89,6 +115,10 @@ export class Game {
     this.input.runToggleRequested = true;
   }
 
+  requestTargetThrow(role) {
+    this.input.targetThrowRequested = role;
+  }
+
   selectPlay(index) {
     this.currentPlay = PLAYS[index];
     if (this.state === STATE.PLAYCALL) {
@@ -106,11 +136,11 @@ export class Game {
     this.blockers = [];
     this.rushers = [];
 
-    const lineY = this.yardToY(this.ballOn);
-    const centerX = this.yardToX(0);
+    const losY = this.yardToWorldY(this.losYard);
+    const centerX = FIELD_LEFT + FIELD_WIDTH / 2;
 
-    this.spawnOffense(lineY, centerX);
-    this.spawnDefense(lineY, centerX);
+    this.spawnOffense(losY, centerX);
+    this.spawnDefense(losY, centerX);
     this.assignRoutes();
     this.assignDefense();
 
@@ -120,9 +150,11 @@ export class Game {
     this.playStartBallOn = this.ballOn;
 
     this.runSelected = this.currentPlay.type === 'run';
+    this.controlled = this.qb;
+    this.updateCamera(0);
   }
 
-  spawnOffense(lineY, centerX) {
+  spawnOffense(losY, centerX) {
     const formation = this.currentPlay.offenseFormation;
     const roles = ['QB', 'RB', 'TE', 'WR1', 'WR2', 'WR3', 'OL1', 'OL2', 'OL3', 'OL4', 'OL5'];
 
@@ -134,7 +166,7 @@ export class Game {
         role,
         team: 'offense',
         x: centerX + offset.x + jitter.x,
-        y: lineY + offset.y + jitter.y,
+        y: losY + offset.y + jitter.y,
       });
 
       this.offense.push(player);
@@ -143,11 +175,9 @@ export class Game {
       if (role.startsWith('WR') || role === 'TE' || role === 'RB') this.receivers.push(player);
       if (role.startsWith('OL') || role === 'TE') this.blockers.push(player);
     });
-
-    this.controlled = this.qb;
   }
 
-  spawnDefense(lineY, centerX) {
+  spawnDefense(losY, centerX) {
     const formation = this.currentPlay.defenseFormation;
     const counts = { DL: 0, LB: 0, CB: 0, S: 0 };
     formation.forEach((spot) => {
@@ -159,7 +189,7 @@ export class Game {
         role,
         team: 'defense',
         x: centerX + spot.x + jitter.x,
-        y: lineY + spot.y + jitter.y,
+        y: losY + spot.y + jitter.y,
         number: DEF_NUMBERS[role] ? DEF_NUMBERS[role][index % DEF_NUMBERS[role].length] : '99',
       });
       player.zoneAnchor = { x: player.x, y: player.y };
@@ -202,7 +232,7 @@ export class Game {
       } else if (style === 'zone') {
         defender.assignment = { type: 'zone', anchor: defender.zoneAnchor };
       } else if (style === 'blitz') {
-        if (defender.role === 'LB' && Math.random() > 0.5) {
+        if (defender.role === 'LB' && Math.random() > 0.4) {
           defender.assignment = { type: 'rush' };
           this.rushers.push(defender);
         } else {
@@ -225,11 +255,13 @@ export class Game {
 
   createPlayer({ role, team, x, y, number }) {
     const style = POSITION_STYLES[role] || POSITION_STYLES.QB;
+    const baseSpeed = team === 'offense' ? 180 : 170;
+    const speed = role.startsWith('OL') ? 130 : baseSpeed;
     return new Player({
       x,
       y,
       team,
-      speed: team === 'offense' ? 40 : 36,
+      speed,
       role,
       number: number || style.number,
       colors: { primary: style.primary, secondary: style.secondary },
@@ -294,6 +326,11 @@ export class Game {
         break;
     }
 
+    this.updateCamera(dt);
+
+    const controlLabel = this.controlled ? this.controlled.role : 'None';
+    const passingLabel = this.ball.inAir ? 'PASSING…' : '';
+
     this.ui.updateHUD({
       quarter: this.quarter,
       clock: this.formatClock(),
@@ -308,7 +345,8 @@ export class Game {
       showRun: this.state === STATE.PRE_SNAP && this.currentPlay.runOption?.available,
       runSelected: this.runSelected,
       sprintCooldown: this.sprintCooldown,
-      helper: this.helperMessage,
+      helper: `${this.helperMessage} ${passingLabel}`.trim(),
+      controlLabel: `CONTROL: ${controlLabel}`,
     });
   }
 
@@ -332,7 +370,7 @@ export class Game {
 
   updatePlay(dt) {
     this.playTimer += dt;
-    const defenseSpeedFactor = this.playTimer < this.defenseDelay ? 0.25 : 1;
+    const defenseSpeedFactor = this.playTimer < this.defenseDelay ? 0.35 : 1;
 
     if (!this.ball.inAir) {
       if (!this.runSelected) {
@@ -346,6 +384,8 @@ export class Game {
           this.quickThrow();
         } else if (this.ball.carrier === this.qb) {
           this.applyMovement(this.qb, dt, 1);
+        } else if (this.ball.carrier && this.ball.carrier !== this.qb) {
+          this.applyMovement(this.ball.carrier, dt, 1);
         }
       } else if (this.ball.carrier) {
         this.applyMovement(this.ball.carrier, dt, 1);
@@ -362,12 +402,13 @@ export class Game {
     if (this.ball.inAir) {
       this.ball.update(dt);
       this.checkBallContacts();
-      if (this.ball.y < 0 || this.ball.y > this.canvas.height) {
-        this.endPlay('Incomplete pass.');
+      if (this.ball.y < FIELD_TOP || this.ball.y > FIELD_BOTTOM) {
+        this.endPlay('Incomplete pass.', { resetBall: true });
       }
     } else if (this.ball.carrier) {
       this.checkTackle();
       this.checkTouchdown();
+      this.checkOutOfBounds();
     }
 
     this.updateOffenseBlocking(dt, defenseSpeedFactor);
@@ -376,7 +417,7 @@ export class Game {
 
   updateOffenseBlocking(dt, defenseSpeedFactor) {
     this.blockers.forEach((blocker) => {
-      const target = this.findNearestDefender(blocker, 28);
+      const target = this.findNearestDefender(blocker, 40);
       if (!target) return;
       const dir = normalize(target.x - blocker.x, target.y - blocker.y);
       const speedBoost = this.runSelected ? 1.1 : 0.9;
@@ -391,7 +432,7 @@ export class Game {
       const assignment = defender.assignment || { type: 'zone', anchor: defender.zoneAnchor };
       if (assignment.type === 'rush') {
         if (!react) return;
-        const blocker = this.findNearestBlocker(defender, 12);
+        const blocker = this.findNearestBlocker(defender, 16);
         const dirToQB = normalize(this.qb.x - defender.x, this.qb.y - defender.y);
         let dir = dirToQB;
         let speed = defender.speed * speedFactor;
@@ -404,10 +445,11 @@ export class Game {
         defender.y += dir.y * speed * dt;
       } else if (assignment.type === 'man') {
         let target = assignment.target || this.qb;
-        if (react && this.ball.inAir && length(this.ball.x - defender.x, this.ball.y - defender.y) < 60) {
+        if (react && this.ball.inAir && length(this.ball.x - defender.x, this.ball.y - defender.y) < 120) {
           target = this.ball;
         }
-        const dir = normalize(target.x - defender.x, target.y - defender.y);
+        const offset = defender.role === 'CB' ? -10 : -6;
+        const dir = normalize(target.x - defender.x, target.y - defender.y + offset);
         const speed = defender.speed * speedFactor * (react ? 1 : 0.4);
         defender.x += dir.x * speed * dt;
         defender.y += dir.y * speed * dt;
@@ -442,22 +484,22 @@ export class Game {
       this.sprintCooldown = 5;
     }
     if (this.sprintTimer > 0) {
-      speed *= 1.6;
+      speed *= 1.45;
     }
     player.x += move.x * speed * dt;
-    player.y += move.y * speed * dt;
-    player.x = clamp(player.x, 14, this.canvas.width - 14);
-    player.y = clamp(player.y, 10, this.canvas.height - 10);
+    player.y += -move.y * speed * dt;
+    player.x = clamp(player.x, FIELD_LEFT + 10, FIELD_RIGHT - 10);
+    player.y = clamp(player.y, FIELD_TOP + 10, FIELD_BOTTOM - 10);
 
     if (!this.ball.inAir && this.ball.carrier === player) {
-      this.ball.x = player.x;
-      this.ball.y = player.y;
-      this.ballOn = this.yToYard(player.y);
+      this.ball.x = player.x + 6;
+      this.ball.y = player.y - 2;
+      this.ballOn = this.worldYToYard(player.y);
     }
   }
 
   throwBall(direction, power) {
-    const speed = 130 * power + 40;
+    const speed = 220 * power + 120;
     const velocity = {
       x: direction.x * speed,
       y: direction.y * speed,
@@ -473,8 +515,8 @@ export class Game {
     if (!target) return;
     const lead = this.getLeadPosition(target);
     const dir = normalize(lead.x - this.qb.x, lead.y - this.qb.y);
-    const distance = clamp(length(lead.x - this.qb.x, lead.y - this.qb.y), 20, 120);
-    this.throwBall(dir, distance / 120);
+    const distance = clamp(length(lead.x - this.qb.x, lead.y - this.qb.y), 40, 220);
+    this.throwBall(dir, distance / 220);
   }
 
   throwToTarget(role) {
@@ -482,8 +524,8 @@ export class Game {
     if (!target) return;
     const lead = this.getLeadPosition(target, true);
     const dir = normalize(lead.x - this.qb.x, lead.y - this.qb.y);
-    const distance = clamp(length(lead.x - this.qb.x, lead.y - this.qb.y), 20, 120);
-    this.throwBall(dir, distance / 120);
+    const distance = clamp(length(lead.x - this.qb.x, lead.y - this.qb.y), 40, 240);
+    this.throwBall(dir, distance / 240);
   }
 
   getLeadPosition(player, useVelocity = false) {
@@ -491,12 +533,10 @@ export class Game {
     if (player.route.length && player.routeIndex < player.route.length) {
       const next = player.route[player.routeIndex];
       const dir = normalize(next.x - player.x, next.y - player.y);
-      target = { x: player.x + dir.x * 10, y: player.y + dir.y * 10 };
-    }
-    if (useVelocity && player.route.length && player.routeIndex < player.route.length) {
-      const next = player.route[player.routeIndex];
-      const dir = normalize(next.x - player.x, next.y - player.y);
-      target = { x: target.x + dir.x * 6, y: target.y + dir.y * 6 };
+      target = { x: player.x + dir.x * 24, y: player.y + dir.y * 24 };
+      if (useVelocity) {
+        target = { x: target.x + dir.x * 12, y: target.y + dir.y * 12 };
+      }
     }
     return target;
   }
@@ -506,8 +546,8 @@ export class Game {
     this.ball.carrier = this.rb;
     this.qb.hasBall = false;
     this.rb.hasBall = true;
-    this.ball.x = this.rb.x;
-    this.ball.y = this.rb.y;
+    this.ball.x = this.rb.x + 6;
+    this.ball.y = this.rb.y - 2;
     this.controlled = this.rb;
   }
 
@@ -554,11 +594,11 @@ export class Game {
     const candidates = [...this.receivers, ...this.defense, this.qb, this.rb];
     for (const player of candidates) {
       const dist = length(player.x - this.ball.x, player.y - this.ball.y);
-      if (dist < player.radius + 3) {
+      if (dist < player.radius + 4) {
         this.ball.inAir = false;
         this.ball.carrier = player;
         player.hasBall = true;
-        this.ballOn = this.yToYard(player.y);
+        this.ballOn = this.worldYToYard(player.y);
         if (player.team === 'defense') {
           this.endDrive('Intercepted! Defense takes over.');
         } else {
@@ -575,10 +615,18 @@ export class Game {
     if (!carrier || carrier.team !== 'offense') return;
     for (const defender of this.defense) {
       const dist = length(defender.x - carrier.x, defender.y - carrier.y);
-      if (dist < defender.radius + carrier.radius) {
+      if (dist < defender.radius + carrier.radius + 1) {
         this.endPlay('Tackled.');
         break;
       }
+    }
+  }
+
+  checkOutOfBounds() {
+    const carrier = this.ball.carrier;
+    if (!carrier) return;
+    if (carrier.x < FIELD_LEFT + 6 || carrier.x > FIELD_RIGHT - 6) {
+      this.endPlay('Out of bounds.');
     }
   }
 
@@ -590,10 +638,14 @@ export class Game {
     }
   }
 
-  endPlay(message) {
+  endPlay(message, options = {}) {
     this.state = STATE.PLAY_OVER;
-    this.messageTimer = 2.5;
+    this.messageTimer = 2.2;
     this.helperMessage = message;
+
+    if (options.resetBall) {
+      this.ballOn = this.losYard;
+    }
 
     const gained = Math.max(0, this.ballOn - this.playStartBallOn);
     if (gained >= this.toGo) {
@@ -603,6 +655,8 @@ export class Game {
       this.down += 1;
       this.toGo -= gained;
     }
+
+    this.losYard = this.ballOn;
 
     if (this.down > 4) {
       this.endDrive('Turnover on downs.');
@@ -619,70 +673,90 @@ export class Game {
     }, 1200);
   }
 
+  updateCamera() {
+    const target = this.ball.inAir ? this.ball : this.controlled || this.qb;
+    if (!target) return;
+    const viewWidth = this.canvas.width / CAMERA_ZOOM;
+    const viewHeight = this.canvas.height / CAMERA_ZOOM;
+
+    this.camera.x += (target.x - this.camera.x) * CAMERA_LERP;
+    this.camera.y += (target.y - this.camera.y) * CAMERA_LERP;
+
+    this.camera.x = clamp(this.camera.x, FIELD_LEFT + viewWidth / 2, FIELD_RIGHT - viewWidth / 2);
+    this.camera.y = clamp(this.camera.y, FIELD_TOP + viewHeight / 2, FIELD_BOTTOM - viewHeight / 2);
+  }
+
   formatClock() {
     const minutes = Math.floor(this.clock / 60);
     const seconds = Math.floor(this.clock % 60);
     return `${minutes}:${seconds.toString().padStart(2, '0')}`;
   }
 
-  yardToY(yard) {
-    const bottom = 170;
-    const top = 10;
-    const clamped = clamp(yard + 10, 0, 120);
-    const ratio = clamped / 120;
-    return bottom - ratio * (bottom - top);
+  yardToWorldY(yard) {
+    return FIELD_TOP + (yard / 100) * FIELD_HEIGHT;
   }
 
-  yToYard(y) {
-    const bottom = 170;
-    const top = 10;
-    const ratio = (bottom - y) / (bottom - top);
-    return clamp(Math.round(ratio * 120) - 10, 0, 100);
-  }
-
-  yardToX(offset) {
-    return this.canvas.width / 2 + offset;
+  worldYToYard(y) {
+    const ratio = (y - FIELD_TOP) / FIELD_HEIGHT;
+    return clamp(Math.round(ratio * 100), 0, 100);
   }
 
   render() {
     const ctx = this.context;
     ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+
+    ctx.setTransform(
+      CAMERA_ZOOM,
+      0,
+      0,
+      -CAMERA_ZOOM,
+      -this.camera.x * CAMERA_ZOOM + this.canvas.width / 2,
+      this.camera.y * CAMERA_ZOOM + this.canvas.height / 2
+    );
+
     this.drawField(ctx);
+    this.drawMarkers(ctx);
     if (this.state === STATE.PRE_SNAP && this.routePreviewTimer > 0) {
       this.drawRoutes(ctx);
     }
     this.drawPlayers(ctx);
     this.drawBall(ctx);
-    this.drawJoystick(ctx);
-    this.drawThrowArrow(ctx);
     if (this.debug) {
       this.drawDebug(ctx);
     }
+
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    this.drawJoystick(ctx);
+    this.drawThrowArrow(ctx);
   }
 
   drawField(ctx) {
     ctx.fillStyle = '#0d3b1e';
-    ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+    ctx.fillRect(FIELD_LEFT, FIELD_TOP, FIELD_WIDTH, FIELD_HEIGHT);
 
-    const top = 10;
-    const bottom = 170;
     ctx.fillStyle = '#1c4f26';
-    ctx.fillRect(0, 0, this.canvas.width, top + 8);
-    ctx.fillRect(0, bottom - 8, this.canvas.width, 18);
+    ctx.fillRect(FIELD_LEFT, FIELD_TOP, FIELD_WIDTH, 60);
+    ctx.fillRect(FIELD_LEFT, FIELD_BOTTOM - 60, FIELD_WIDTH, 60);
 
     ctx.strokeStyle = '#2c6e3f';
-    ctx.lineWidth = 1;
-    for (let yard = 0; yard <= 100; yard += 10) {
-      const y = this.yardToY(yard);
+    ctx.lineWidth = 2;
+    for (let yard = 0; yard <= 100; yard += 5) {
+      const y = this.yardToWorldY(yard);
       ctx.beginPath();
-      ctx.moveTo(20, y);
-      ctx.lineTo(this.canvas.width - 20, y);
+      ctx.moveTo(FIELD_LEFT + 20, y);
+      ctx.lineTo(FIELD_RIGHT - 20, y);
       ctx.stroke();
     }
+  }
+
+  drawMarkers(ctx) {
+    const losY = this.yardToWorldY(this.losYard);
+    const firstDownY = this.yardToWorldY(clamp(this.losYard + this.toGo, 0, 100));
 
     ctx.fillStyle = '#f5f1d0';
-    const lineY = this.yardToY(this.ballOn);
-    ctx.fillRect(18, lineY - 1, this.canvas.width - 36, 2);
+    ctx.fillRect(FIELD_LEFT + 4, losY - 2, FIELD_WIDTH - 8, 4);
+    ctx.fillStyle = '#f9c74f';
+    ctx.fillRect(FIELD_LEFT + 4, firstDownY - 2, FIELD_WIDTH - 8, 4);
   }
 
   drawRoutes(ctx) {
@@ -699,29 +773,44 @@ export class Game {
   }
 
   drawPlayers(ctx) {
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.font = '6px "Press Start 2P", monospace';
-
     const drawPlayer = (player) => {
       ctx.fillStyle = player.colors.primary;
       ctx.fillRect(player.x - 5, player.y - 5, 10, 10);
       ctx.fillStyle = player.colors.secondary;
       ctx.fillRect(player.x - 3, player.y - 3, 6, 6);
-      ctx.fillStyle = '#0b0b0b';
-      ctx.fillText(player.number, player.x, player.y + 1);
+      this.drawNumber(ctx, player.number, player.x - 4, player.y - 3);
     };
 
     this.offense.forEach(drawPlayer);
     this.defense.forEach(drawPlayer);
   }
 
+  drawNumber(ctx, number, x, y) {
+    ctx.fillStyle = '#0b0b0b';
+    const digits = number.split('');
+    digits.forEach((digit, index) => {
+      const pattern = DIGITS[digit];
+      if (!pattern) return;
+      pattern.forEach((row, rowIndex) => {
+        row.split('').forEach((cell, colIndex) => {
+          if (cell === '1') {
+            ctx.fillRect(x + index * 4 + colIndex, y + rowIndex, 1, 1);
+          }
+        });
+      });
+    });
+  }
+
   drawBall(ctx) {
     ctx.fillStyle = '#f4a261';
     if (this.ball.carrier && !this.ball.inAir) {
-      ctx.fillRect(this.ball.carrier.x - 2, this.ball.carrier.y - 2, 4, 4);
+      ctx.fillRect(this.ball.carrier.x + 3, this.ball.carrier.y - 1, 4, 3);
+      ctx.strokeStyle = '#5a2a0c';
+      ctx.strokeRect(this.ball.carrier.x + 3, this.ball.carrier.y - 1, 4, 3);
     } else if (this.ball.inAir) {
       ctx.fillRect(this.ball.x - 2, this.ball.y - 2, 4, 4);
+      ctx.strokeStyle = '#5a2a0c';
+      ctx.strokeRect(this.ball.x - 2, this.ball.y - 2, 4, 4);
     }
   }
 
@@ -764,17 +853,8 @@ export class Game {
         ctx.lineTo(defender.assignment.target.x, defender.assignment.target.y);
         ctx.stroke();
       } else if (defender.assignment?.type === 'zone' && defender.assignment.anchor) {
-        ctx.strokeRect(defender.assignment.anchor.x - 8, defender.assignment.anchor.y - 8, 16, 16);
+        ctx.strokeRect(defender.assignment.anchor.x - 12, defender.assignment.anchor.y - 12, 24, 24);
       }
-      ctx.fillStyle = '#ffffff';
-      ctx.font = '6px "Press Start 2P", monospace';
-      ctx.fillText(defender.role, defender.x, defender.y - 8);
-    });
-
-    this.offense.forEach((player) => {
-      ctx.fillStyle = '#ffffff';
-      ctx.font = '6px "Press Start 2P", monospace';
-      ctx.fillText(player.role, player.x, player.y - 8);
     });
   }
 }
