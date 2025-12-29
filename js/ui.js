@@ -7,7 +7,6 @@ export class UI {
     this.playButtons = document.getElementById('play-buttons');
     this.snapButton = document.getElementById('snap');
     this.sprintButton = document.getElementById('sprint');
-    this.throwButton = document.getElementById('throw');
     this.helper = document.getElementById('helper');
     this.game = null;
 
@@ -17,10 +16,6 @@ export class UI {
 
     this.sprintButton.addEventListener('click', () => {
       if (this.game) this.game.requestSprint();
-    });
-
-    this.throwButton.addEventListener('click', () => {
-      if (this.game) this.game.requestQuickThrow();
     });
 
     this.renderPlayButtons();
@@ -56,12 +51,6 @@ export class UI {
       this.snapButton.classList.remove('hidden');
     } else {
       this.snapButton.classList.add('hidden');
-    }
-
-    if (data.showThrow) {
-      this.throwButton.classList.remove('hidden');
-    } else {
-      this.throwButton.classList.add('hidden');
     }
 
     if (data.sprintCooldown > 0) {

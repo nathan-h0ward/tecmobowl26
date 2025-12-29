@@ -6,7 +6,6 @@ export class Input {
     this.joystick = { active: false, id: null, startX: 0, startY: 0, x: 0, y: 0 };
     this.thrower = { active: false, id: null, startX: 0, startY: 0, x: 0, y: 0 };
     this.throwReleased = null;
-    this.quickThrowRequested = false;
     this.snapRequested = false;
     this.sprintRequested = false;
     this.keys = new Set();
@@ -75,9 +74,6 @@ export class Input {
     if (event.code === 'ShiftLeft' || event.code === 'ShiftRight' || event.code === 'KeyE') {
       this.sprintRequested = true;
     }
-    if (event.code === 'KeyF') {
-      this.quickThrowRequested = true;
-    }
   }
 
   onKeyUp(event) {
@@ -119,12 +115,6 @@ export class Input {
       dir,
       power: distance / 120,
     };
-  }
-
-  consumeQuickThrow() {
-    const wasRequested = this.quickThrowRequested;
-    this.quickThrowRequested = false;
-    return wasRequested;
   }
 
   consumeSnap() {

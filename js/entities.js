@@ -30,8 +30,6 @@ export class Player {
     this.route = [];
     this.routeIndex = 0;
     this.hasBall = false;
-    this.blockTarget = null;
-    this.zoneAnchor = null;
   }
 
   setRoute(route) {
