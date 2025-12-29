@@ -5,7 +5,7 @@ A mobile-friendly pixel football game inspired by classic arcade football. Built
 ## How to Play
 - Pick a play from the playcall panel (2 pass plays + 1 run play).
 - Tap **Snap** to start the play (QB cannot move pre-snap).
-- Pass plays: drag on the right side to aim and throw, or tap **Throw** for a quick pass.
+- Pass plays: drag on the right side to aim and throw, tap **Throw** for a quick pass, or use number keys to target receivers.
 - Run play: snap triggers an instant handoff to the RB.
 - Use the left joystick to move the QB or ball carrier.
 - Tap **Sprint** for a short burst (cooldown applies).
@@ -21,6 +21,7 @@ A mobile-friendly pixel football game inspired by classic arcade football. Built
 - Mouse drag on right side = throw
 - Space = snap
 - F = quick throw
+- 1 = WR1, 2 = WR2, 3 = WR3, 4 = TE, 5 = RB (instant throws)
 - Shift or E = sprint
 
 ## Game Rules

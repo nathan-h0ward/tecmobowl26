@@ -114,6 +114,12 @@ html, body {
   border-color: #6b5a2d;
 }
 
+#throw {
+  bottom: 150px;
+  background: #203045;
+  border-color: #385a7a;
+}
+
 #helper {
   position: absolute;
   bottom: 18px;
