@@ -10,6 +10,7 @@ export class Input {
     this.targetThrowRequested = null;
     this.runToggleRequested = false;
     this.debugToggleRequested = false;
+    this.cameraDebugRequested = false;
     this.snapRequested = false;
     this.sprintRequested = false;
     this.keys = new Set();
@@ -88,6 +89,7 @@ export class Input {
     if (event.code === 'Digit5') this.targetThrowRequested = 'RB';
     if (event.code === 'KeyR') this.runToggleRequested = true;
     if (event.code === 'KeyD') this.debugToggleRequested = true;
+    if (event.code === 'KeyC') this.cameraDebugRequested = true;
   }
 
   onKeyUp(event) {
@@ -152,6 +154,12 @@ export class Input {
   consumeDebugToggle() {
     const wasRequested = this.debugToggleRequested;
     this.debugToggleRequested = false;
+    return wasRequested;
+  }
+
+  consumeCameraDebugToggle() {
+    const wasRequested = this.cameraDebugRequested;
+    this.cameraDebugRequested = false;
     return wasRequested;
   }
 

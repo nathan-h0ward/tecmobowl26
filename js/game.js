@@ -15,6 +15,8 @@ const FIELD_TOP = 200;
 const FIELD_BOTTOM = FIELD_TOP + FIELD_HEIGHT;
 const FIELD_LEFT = 60;
 const FIELD_RIGHT = FIELD_LEFT + FIELD_WIDTH;
+const WORLD_WIDTH = FIELD_WIDTH;
+const WORLD_HEIGHT = FIELD_HEIGHT;
 const CAMERA_LERP = 0.12;
 const CAMERA_ZOOM = 1.45;
 const CAMERA_LOOKAHEAD = 90;
@@ -82,6 +84,7 @@ export class Game {
     this.camera = { x: FIELD_LEFT + FIELD_WIDTH / 2, y: FIELD_TOP + 100 };
     this.cameraLook = { x: 0, y: 1 };
     this.lastControlPos = { x: 0, y: 0 };
+    this.cameraDebug = false;
 
     this.debug = false;
 
@@ -305,6 +308,9 @@ export class Game {
     if (this.input.consumeDebugToggle()) {
       this.debug = !this.debug;
     }
+    if (this.input.consumeCameraDebugToggle()) {
+      this.cameraDebug = !this.cameraDebug;
+    }
 
     this.updateClock(dt);
     this.updateSprintTimers(dt);
@@ -351,6 +357,9 @@ export class Game {
       sprintCooldown: this.sprintCooldown,
       helper: `${this.helperMessage} ${passingLabel}`.trim(),
       controlLabel: `CONTROL: ${controlLabel}`,
+      cameraLabel: this.cameraDebug
+        ? `CAM ${this.camera.x.toFixed(0)},${this.camera.y.toFixed(0)} Z${CAMERA_ZOOM} T:${controlLabel}`
+        : '',
     });
   }
 
@@ -678,31 +687,42 @@ export class Game {
   }
 
   updateCamera() {
-    const target = this.ball.inAir ? this.ball : this.controlled || this.qb;
-    if (!target) return;
+    const controlled = this.controlled || this.qb;
+    if (!controlled) return;
     const viewWidth = this.canvas.width / CAMERA_ZOOM;
     const viewHeight = this.canvas.height / CAMERA_ZOOM;
 
-    if (target === this.controlled) {
-      const dx = target.x - this.lastControlPos.x;
-      const dy = target.y - this.lastControlPos.y;
-      if (Math.abs(dx) + Math.abs(dy) > 0.5) {
-        const dir = normalize(dx, dy);
-        this.cameraLook = dir;
-      }
-      this.lastControlPos = { x: target.x, y: target.y };
+    const dx = controlled.x - this.lastControlPos.x;
+    const dy = controlled.y - this.lastControlPos.y;
+    if (Math.abs(dx) + Math.abs(dy) > 0.5) {
+      const dir = normalize(dx, dy);
+      this.cameraLook = dir;
     }
+    this.lastControlPos = { x: controlled.x, y: controlled.y };
 
     const lookaheadX = this.cameraLook.x * CAMERA_LOOKAHEAD;
     const lookaheadY = this.cameraLook.y * CAMERA_LOOKAHEAD;
-    const targetX = target.x + lookaheadX;
-    const targetY = target.y + lookaheadY;
+
+    let targetX = controlled.x + lookaheadX;
+    let targetY = controlled.y + lookaheadY;
+    if (this.ball.inAir) {
+      targetX = controlled.x + (this.ball.x - controlled.x) * 0.35;
+      targetY = controlled.y + (this.ball.y - controlled.y) * 0.35;
+    }
 
     this.camera.x += (targetX - this.camera.x) * CAMERA_LERP;
     this.camera.y += (targetY - this.camera.y) * CAMERA_LERP;
 
-    this.camera.x = clamp(this.camera.x, FIELD_LEFT + viewWidth / 2, FIELD_RIGHT - viewWidth / 2);
-    this.camera.y = clamp(this.camera.y, FIELD_TOP + viewHeight / 2, FIELD_BOTTOM - viewHeight / 2);
+    this.camera.x = clamp(
+      this.camera.x,
+      FIELD_LEFT + viewWidth / 2,
+      FIELD_LEFT + WORLD_WIDTH - viewWidth / 2
+    );
+    this.camera.y = clamp(
+      this.camera.y,
+      FIELD_TOP + viewHeight / 2,
+      FIELD_TOP + WORLD_HEIGHT - viewHeight / 2
+    );
   }
 
   formatClock() {
@@ -724,14 +744,10 @@ export class Game {
     const ctx = this.context;
     ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
 
-    ctx.setTransform(
-      CAMERA_ZOOM,
-      0,
-      0,
-      -CAMERA_ZOOM,
-      -this.camera.x * CAMERA_ZOOM + this.canvas.width / 2,
-      this.camera.y * CAMERA_ZOOM + this.canvas.height / 2
-    );
+    ctx.save();
+    ctx.translate(this.canvas.width / 2, this.canvas.height / 2);
+    ctx.scale(CAMERA_ZOOM, CAMERA_ZOOM);
+    ctx.translate(-this.camera.x, -this.camera.y);
 
     this.drawField(ctx);
     this.drawMarkers(ctx);
@@ -744,7 +760,7 @@ export class Game {
       this.drawDebug(ctx);
     }
 
-    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.restore();
     this.drawJoystick(ctx);
     this.drawThrowArrow(ctx);
   }

@@ -62,7 +62,7 @@ export class UI {
 
   updateHUD(data) {
     this.scoreboard.innerHTML = `Q${data.quarter} ${data.clock}<br>Down ${data.down} & ${data.toGo}<br>Ball ${data.ballOn} | Score ${data.score}<br>${data.playName}<br>${data.controlLabel}`;
-    this.helper.textContent = data.helper;
+    this.helper.textContent = data.cameraLabel ? `${data.helper} ${data.cameraLabel}` : data.helper;
 
     if (data.showPlaycall) {
       this.playcall.classList.remove('hidden');
